@@ -1,0 +1,56 @@
+# dsh-web-custom bundle patch
+#
+# 安装（标准 bundle 插件，不改 dsh 源码）：
+#   dsh plugin --profile desktop add dsh-web-custom   # or: add /path/to/this/checkout
+# 卸载：
+#   dsh plugin --profile desktop remove dsh-web-custom
+# 安装/卸载后重启 dsh 生效。
+#
+# 本包一个补丁干两件事：
+#   1. 把宿主 web 行的两个 provider 一起写全（searchProvider + fetchProvider）；
+#   2. 挂载本插件行 web-custom，出厂默认接 AnySearch 搜索 + AnySearch Extract。
+#
+# 与旧包的关键差异：旧时代两个包各自只写 `- id: web` 的一半 config，靠 profile
+# 用户层把两键补齐才不互相覆盖；现在由本包一次写全。补丁是「整段替换 config」，
+# 若你在用户层覆盖，请把 29 个键写全（或至少把两键写全）。
+#
+# 切换必须原子：新旧包不能同时挂载——宿主 @deepseek-ai/dsh-web 对同 id 重复注册
+# 直接抛 WEB_DUPLICATE_PROVIDER。停宿主 → 换完成员 → 启宿主。
+- id: web
+  config:
+    searchProvider: custom
+    fetchProvider: anysearch
+
+- insert:
+    - id: web-custom
+      name: 'dsh-web-custom'
+      config:
+        searchApi: auto
+        searchUrl: 'https://api.anysearch.com/v1/search'
+        searchApiKey: ''
+        searchMaxResults: 10
+        searchMethod: GET
+        searchBody: '{"query":"{query}"}'
+        searchHeaders: '{}'
+        searchAuthHeader: Authorization
+        searchAuthScheme: Bearer
+        searchTimeoutMs: 30000
+        searchResultsPath: results
+        searchUrlField: url
+        searchTitleField: title
+        searchSnippetField: content
+        searchPublishedField: publishedDate
+        cdpEnabled: true
+        cdpEndpoint: 'http://10.200.0.5:9222'
+        cdpTimeoutMs: 60000
+        cdpWaitMs: 2000
+        tavilyEnabled: false
+        tavilyEndpoint: 'https://api.tavily.com/extract'
+        tavilyApiKey: ''
+        tavilyTimeoutMs: 30000
+        anysearchEnabled: true
+        anysearchEndpoint: 'https://api.anysearch.com/v1/extract'
+        anysearchApiKey: ''
+        anysearchTimeoutMs: 30000
+        anysearchFallbackToHttp: true
+        anysearchMaxChars: 100000

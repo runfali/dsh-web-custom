@@ -1,0 +1,77 @@
+{
+  "name": "dsh-web-custom",
+  "version": "0.4.0",
+  "description": "One DSH bundle for the web seam: a search provider (AnySearch / generic JSON, takes over the native web_search) plus an extract provider (AnySearch, takes over web_fetch) and two standalone CDP / Tavily fetch tools. Merged from dsh-web-fetch and dsh-web-search-custom.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "lib",
+    "tests",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "web-search",
+    "web-fetch",
+    "anysearch",
+    "cdp",
+    "tavily"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node tests/entry.test.mjs && node tests/host-integration.test.mjs && node tests/search-provider.test.mjs && node tests/test-cdp-unit.mjs && node tests/test-tavily-unit.mjs && node tests/test-anysearch-unit.mjs && node tests/test-cdp-frames.mjs && node tests/client-smoke.mjs",
+    "test:entry": "node tests/entry.test.mjs",
+    "test:host": "node tests/host-integration.test.mjs",
+    "test:client": "node tests/client-smoke.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.2-alpha.3 <0.1.8 || >=0.1.5-alpha.1 <0.1.6 || >=0.1.7-alpha.0 <0.1.8 || >=0.2.0-alpha.0 <0.3.0 || >=0.2.1-alpha.0 <0.3.0 || >=0.2.2-alpha.0 <0.3.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.2-alpha.3 <0.1.8 || >=0.1.5-alpha.1 <0.1.6 || >=0.1.7-alpha.0 <0.1.8 || >=0.2.0-alpha.0 <0.3.0 || >=0.2.1-alpha.0 <0.3.0 || >=0.2.2-alpha.0 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-alpha.3 <0.1.8 || >=0.1.5-alpha.1 <0.1.6 || >=0.1.7-alpha.0 <0.1.8 || >=0.2.0-alpha.0 <0.3.0 || >=0.2.1-alpha.0 <0.3.0 || >=0.2.2-alpha.0 <0.3.0",
+    "@deepseek-ai/schemastery": "~3.18.4 || ~3.19.0",
+    "react": "^18.0.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-settings": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "3.19.0"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.1.2-alpha.3 <0.1.8 || >=0.1.5-alpha.1 <0.1.6 || >=0.1.7-alpha.0 <0.1.8 || >=0.2.0-alpha.0 <0.3.0 || >=0.2.1-alpha.0 <0.3.0 || >=0.2.2-alpha.0 <0.3.0"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/runfali/dsh-web-custom.git"
+  }
+}
