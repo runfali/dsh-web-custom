@@ -43,10 +43,15 @@ export function plainText(raw) {
   return md.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim()
 }
 
-/** 截断字符串，保留省略号。 */
+/** 截断字符串，保留省略号；截断点落在代理对中间时退一位，不产生半个字符。 */
 export function truncate(text, limit) {
   const n = Math.max(1, Math.trunc(limit))
-  return text.length <= n ? text : text.slice(0, n - 1) + "\u2026"
+  if (text.length <= n) return text
+  let end = n - 1
+  const kept = end >= 1 ? text.charCodeAt(end - 1) : NaN
+  const dropped = text.charCodeAt(end)
+  if (kept >= 0xd800 && kept <= 0xdbff && dropped >= 0xdc00 && dropped <= 0xdfff) end -= 1
+  return text.slice(0, end) + "\u2026"
 }
 
 /** 构造单个 WebSource。 */

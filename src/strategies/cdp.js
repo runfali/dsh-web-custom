@@ -190,7 +190,15 @@ class CdpClient {
     try {
       return await new Promise((resolve, reject) => {
         this.pending.set(id, { resolve, reject })
-        const onAbort = () => { this.pending.delete(id); reject(new Error("CDP command " + method + " timed out after " + (opts.timeoutMs || this.cfg.timeoutMs) + "ms")) }
+        const onAbort = () => {
+          this.pending.delete(id)
+          if (opts.signal && opts.signal.aborted) {
+            const reason = opts.signal.reason
+            reject(reason instanceof Error && reason.message ? reason : new Error("CDP command " + method + " aborted"))
+          } else {
+            reject(new Error("CDP command " + method + " timed out after " + (opts.timeoutMs || this.cfg.timeoutMs) + "ms"))
+          }
+        }
         timeout.signal.addEventListener("abort", onAbort, { once: true })
       })
     } finally { timeout.cleanup() }
@@ -217,10 +225,15 @@ class CdpClient {
 const EXTRACT_JS = "(function(){try{var el=document.querySelector('#article')||document.querySelector('#artibody')||document.querySelector('article')||document.body;return el?(el.innerText||el.textContent||''):document.title||''}catch(e){return document.title||''}})()"
 
 async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
+  // 调用方中止检查：所有轮询/单发命令前统一走这里，保证 abort 在一个 tick 内浮出。
+  const throwIfAborted = () => {
+    if (signal && signal.aborted) throw new Error("cdp fetch aborted")
+  }
   // 1. 创建隔离 target，直接指向目标 URL
   let targetId = null
+  throwIfAborted()
   try {
-    const cr = await browserClient.cmd("Target.createTarget", { url }, { timeoutMs: 8000 })
+    const cr = await browserClient.cmd("Target.createTarget", { url }, { timeoutMs: 8000, signal })
     targetId = cr && cr.targetId
   } catch (e) {
     throw new Error("Target.createTarget failed: " + e.message + " (endpoint " + endpoint + ")")
@@ -230,6 +243,7 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
   // 2. 轮询 /json/list 取到新 target 的 page WS
   let pageWs = null
   for (let i = 0; i < 8; i++) {
+    throwIfAborted()
     await new Promise((r) => setTimeout(r, 200))
     try {
       const list = await browserClient.httpGet("/json/list")
@@ -264,31 +278,34 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
     // 轮询 readyState
     const probe = async () => {
       try {
-        const r = await pageClient.cmd("Runtime.evaluate", { expression: "document.readyState", returnByValue: true }, { timeoutMs: 3000 })
+        const r = await pageClient.cmd("Runtime.evaluate", { expression: "document.readyState", returnByValue: true }, { timeoutMs: 3000, signal })
         return r && r.result && r.result.value === "complete"
       } catch { return false }
     }
     await Promise.race([
       loadP,
-      (async () => { for (let i = 0; i < 12; i++) { await new Promise((r) => setTimeout(r, 500)); if (await probe()) return } })(),
+      (async () => { for (let i = 0; i < 12; i++) { throwIfAborted(); await new Promise((r) => setTimeout(r, 500)); if (await probe()) return } })(),
     ]).catch(() => {})
 
     // 额外等待正文容器出现（sina 常见 #article / #artibody），最多 4 秒
     for (let i = 0; i < 12; i++) {
+      throwIfAborted()
       try {
-        const hasArt = await pageClient.cmd("Runtime.evaluate", { expression: "!!(document.querySelector('#article')||document.querySelector('#artibody')||document.querySelector('.article'))", returnByValue: true }, { timeoutMs: 2000 })
+        const hasArt = await pageClient.cmd("Runtime.evaluate", { expression: "!!(document.querySelector('#article')||document.querySelector('#artibody')||document.querySelector('.article'))", returnByValue: true }, { timeoutMs: 2000, signal })
         if (hasArt && hasArt.result && hasArt.result.value) break
       } catch {}
       await new Promise((r) => setTimeout(r, 300))
     }
 
     if (cfg.waitMs > 0) await new Promise((r) => setTimeout(r, cfg.waitMs))
+    throwIfAborted()
 
     let text = ""
     try {
-      const ev = await pageClient.cmd("Runtime.evaluate", { expression: EXTRACT_JS, returnByValue: true }, { timeoutMs: 8000 })
+      const ev = await pageClient.cmd("Runtime.evaluate", { expression: EXTRACT_JS, returnByValue: true }, { timeoutMs: 8000, signal })
       text = ev && ev.result && ev.result.value ? String(ev.result.value) : ""
     } catch {}
+    throwIfAborted()
     if (!text || text.trim().length < 30) {
       try {
         const dom = await pageClient.cmd("DOM.getDocument", { depth: -1, pierce: true }, { timeoutMs: 5000 }).catch(() => null)
@@ -299,6 +316,7 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
         }
       } catch {}
     }
+    throwIfAborted()
     return { url, title: "", body: plainText(text), source: "cdp" }
   } finally {
     await pageClient.close().catch(() => {})
@@ -326,6 +344,8 @@ export function makeCdpStrategy(config) {
       if (!req.url || !String(req.url).trim()) throw new Error("CDP requires a non-empty URL (parameter `url`)")
       let url = String(req.url).trim()
       if (!/^https?:\/\//i.test(url)) url = "http://" + url
+      // 入口即拒绝已中止的调用：不建连接、不发任何网络请求。
+      if (signal && signal.aborted) throw new Error("cdp fetch aborted")
       const browserClient = new CdpClient(endpoint, cfg)
       await browserClient.connect()
       try {

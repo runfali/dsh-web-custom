@@ -93,7 +93,7 @@ function resolveApi(options) {
   return isAnySearchHost(hostOf(options.url)) ? "anysearch" : "generic"
 }
 
-/** 把模板里的 {query}（已编码）/ {queryRaw}（未编码）/ {apiKey} 换值；未知占位符原样保留。 */
+/** 把模板里的 {query}（已编码）/ {queryRaw}（未编码）/ {apiKey}（已编码）/ {apiKeyRaw}（原样）换值；未知占位符原样保留。 */
 function fillTemplate(template, values) {
   return template.replace(/\{(\w+)\}/g, (match, key) =>
     Object.prototype.hasOwnProperty.call(values, key) ? values[key] : match
@@ -186,9 +186,9 @@ function anysearchError(status, envelope) {
   if (status === 401 || status === 403) {
     parts.push('check the "searchApiKey" setting for the web-custom plugin (or clear it to use the anonymous free tier)')
   } else if (status === 402) {
-    parts.push('anonymous daily free quota exhausted: set an "searchApiKey" in the web-custom settings (the key/credentials in the response were redacted and NOT stored)')
+    parts.push('anonymous daily free quota exhausted: set the "searchApiKey" in the web-custom settings (the key/credentials in the response were redacted and NOT stored)')
   } else if (status === 429) {
-    parts.push('rate limited: retry later or set an "searchApiKey" in the web-custom settings')
+    parts.push('rate limited: retry later or set the "searchApiKey" in the web-custom settings')
   } else if (status === 400 || status === 502) {
     parts.push("check the request settings (tag/params/zone/language are forwarded as-is in the POST body)")
   }
@@ -248,7 +248,8 @@ async function searchGeneric(options, request, callSignal, callerSignal) {
   const values = templateValues(request, options)
   const keyAlreadyEmbedded =
     options.url.includes("{apiKey}") ||
-    (options.method === "POST" && options.body.includes("{apiKey}"))
+    options.url.includes("{apiKeyRaw}") ||
+    (options.method === "POST" && (options.body.includes("{apiKey}") || options.body.includes("{apiKeyRaw}")))
   const appendQuery = options.method === "GET" && !options.url.includes("{query}")
   const url = buildUrl(options.url, values, appendQuery)
   const headers = buildHeaders(options, keyAlreadyEmbedded)
@@ -270,7 +271,7 @@ async function searchGeneric(options, request, callSignal, callerSignal) {
 
 /** anysearch 档：厂商信封 POST，带 key 走鉴权配额、不带 key 走匿名免费档。 */
 async function searchAnySearch(options, request, callSignal, callerSignal) {
-  const keyAlreadyEmbedded = options.url.includes("{apiKey}")
+  const keyAlreadyEmbedded = options.url.includes("{apiKey}") || options.url.includes("{apiKeyRaw}")
   const url = buildUrl(options.url, templateValues(request, options), false)
   const headers = buildHeaders(options, keyAlreadyEmbedded, "POST")
   const body = JSON.stringify({
