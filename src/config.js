@@ -14,7 +14,7 @@ import z from "@deepseek-ai/schemastery"
 export const DEFAULT_SEARCH_URL = "https://api.anysearch.com/v1/search"
 export const DEFAULT_SEARCH_MAX_RESULTS = 10
 export const DEFAULT_SEARCH_TIMEOUT_MS = 30000
-export const DEFAULT_CDP_ENDPOINT = "http://10.200.0.5:9222"
+export const DEFAULT_CDP_ENDPOINT = "http://127.0.0.1:9222"
 export const DEFAULT_CDP_TIMEOUT_MS = 60000
 export const DEFAULT_CDP_WAIT_MS = 2000
 export const DEFAULT_TAVILY_ENDPOINT = "https://api.tavily.com/extract"

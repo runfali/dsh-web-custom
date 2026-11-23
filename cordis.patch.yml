@@ -41,7 +41,7 @@
         searchSnippetField: content
         searchPublishedField: publishedDate
         cdpEnabled: true
-        cdpEndpoint: 'http://10.200.0.5:9222'
+        cdpEndpoint: 'http://127.0.0.1:9222'
         cdpTimeoutMs: 60000
         cdpWaitMs: 2000
         tavilyEnabled: false

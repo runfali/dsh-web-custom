@@ -101,7 +101,7 @@ const DEFAULTS = {
   searchMethod: "GET", searchBody: '{"query":"{query}"}', searchHeaders: "{}", searchAuthHeader: "Authorization",
   searchAuthScheme: "Bearer", searchTimeoutMs: 30000, searchResultsPath: "results", searchUrlField: "url",
   searchTitleField: "title", searchSnippetField: "content", searchPublishedField: "publishedDate",
-  cdpEnabled: true, cdpEndpoint: "http://10.200.0.5:9222", cdpTimeoutMs: 60000, cdpWaitMs: 2000,
+  cdpEnabled: true, cdpEndpoint: "http://127.0.0.1:9222", cdpTimeoutMs: 60000, cdpWaitMs: 2000,
   tavilyEnabled: false, tavilyEndpoint: "https://api.tavily.com/extract", tavilyApiKey: "", tavilyTimeoutMs: 30000,
   anysearchEnabled: true, anysearchEndpoint: "https://api.anysearch.com/v1/extract", anysearchApiKey: "",
   anysearchTimeoutMs: 30000, anysearchFallbackToHttp: true, anysearchMaxChars: 100000

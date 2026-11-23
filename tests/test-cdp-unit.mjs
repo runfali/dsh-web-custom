@@ -35,9 +35,9 @@ async function run() {
 
   console.log("[CDP strategy factory]")
   await ok("默认配置下 endpoint 回退到默认值", () => { const s = makeCdpStrategy({}); assert.equal(s.id, "cdp"); assert.equal(s.available(), true) })
-  await ok("available 返回 true 当 endpoint 合法", () => { assert.equal(makeCdpStrategy({ endpoint:"http://10.200.0.5:9222" }).available(), true) })
+  await ok("available 返回 true 当 endpoint 合法", () => { assert.equal(makeCdpStrategy({ endpoint:"http://127.0.0.1:9222" }).available(), true) })
   await ok("available 拒绝非法协议", () => { assert.equal(makeCdpStrategy({ endpoint:"gopher://x" }).available(), false) })
-  await ok("fetch 拒绝空 url", async () => { const s = makeCdpStrategy({ endpoint:"http://10.200.0.5:9222" }); try { await s.fetch({ url:"" }); assert.fail("should throw") } catch {} })
+  await ok("fetch 拒绝空 url", async () => { const s = makeCdpStrategy({ endpoint:"http://127.0.0.1:9222" }); try { await s.fetch({ url:"" }); assert.fail("should throw") } catch {} })
   await ok("fetch 对缺少协议的 URL 自动补 http", async () => { const s = makeCdpStrategy({ endpoint:"http://127.0.0.1:1" }); try { await s.fetch({ url:"example.com" }); assert.fail("should throw") } catch {} })
   await ok("fetch 对已中止的 signal 立即拒绝且零网络", async () => {
     const s = makeCdpStrategy({ endpoint: "http://127.0.0.1:9" })

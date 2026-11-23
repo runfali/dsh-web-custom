@@ -1,8 +1,8 @@
 # dsh-web-custom
 
-One DSH bundle for the **web seam**: a search provider that takes over the native `web_search`, an extract provider that takes over `web_fetch`, and two standalone fetch tools (`web_fetch_cdp`, `web_fetch_tavily`).
+One DSH bundle for the **web seam**: a search provider that replaces the native `web_search`, an extract provider that replaces `web_fetch` with automatic plain-HTTP fallback, and two standalone fetch tools (`web_fetch_cdp`, `web_fetch_tavily`) — all behind one live-reload settings card.
 
-Merged from [dsh-web-fetch](../dsh-web-fetch) and [dsh-web-search-custom](../dsh-web-search-custom). It replaces two bundles, two settings namespaces and two half-written `- id: web` patches with **one bundle, one config row, one settings card**.
+One bundle owns both provider keys, so the search and fetch sides can never drift apart: **one config namespace, one settings card, one atomic switch**.
 
 ## Why one bundle
 
@@ -15,7 +15,7 @@ The host picks providers from the `web` row of the profile patch:
     fetchProvider: anysearch
 ```
 
-Previously each old bundle wrote only half of that config and the profile user layer had to complete the other key. Now one bundle writes both keys at once. A duplicate provider id on the same seam throws `WEB_DUPLICATE_PROVIDER` at load, so **the old and new bundles can never coexist** — switching must be atomic.
+A bundle that owns only one of the two keys leaves the other half to the profile user layer, where the next edit easily overwrites it. This bundle writes both keys at once. A duplicate provider id on the same seam throws `WEB_DUPLICATE_PROVIDER` at load, so **two bundles cannot serve the same provider** — switching is atomic by construction.
 
 ## Capabilities
 
@@ -41,14 +41,18 @@ dsh plugin --profile desktop add /path/to/dsh-web-custom
 # or, after publishing: add dsh-web-custom
 ```
 
-Restart the host. Before restarting, remove the two legacy rows and their packages:
+The included `cordis.patch.yml` already declares both provider keys. Restart the host, then open the plugin's settings card.
+
+### Upgrading from the earlier split bundles
+
+Skip this section unless you previously installed `dsh-web-fetch` and `dsh-web-search-custom`. Remove both before restarting — they register the same provider ids, and a duplicate id fails the load with `WEB_DUPLICATE_PROVIDER`:
 
 1. `dsh plugin --profile desktop remove dsh-web-fetch`
 2. `dsh plugin --profile desktop remove dsh-web-search-custom`
 3. Delete the `- id: web-fetch` / `- id: web-search-custom` rows from the profile patch.
 4. Make sure the `- id: web` row carries both `searchProvider: custom` and `fetchProvider: anysearch`.
 
-The included `cordis.patch.yml` already declares both. See [Migration](#migration) for the 29 config keys.
+See [Migrating an existing config](#migrating-an-existing-config) for the 29 config keys.
 
 ## Configuration
 
@@ -58,22 +62,22 @@ One namespace — `web-custom` — with 29 fields, all `.volatile()` (saved from
 |---|---|---|
 | Search | `searchApi`, `searchUrl`, `searchApiKey`, `searchMaxResults`, `searchMethod`, `searchBody`, `searchHeaders`, `searchAuthHeader`, `searchAuthScheme`, `searchTimeoutMs`, `searchResultsPath`, `searchUrlField`, `searchTitleField`, `searchSnippetField`, `searchPublishedField` | `auto` / `https://api.anysearch.com/v1/search` / `''` / `10` / `GET` / `{"query":"{query}"}` / `{}` / `Authorization` / `Bearer` / `30000` / `results` / `url` / `title` / `content` / `publishedDate` |
 | AnySearch extract | `anysearchEnabled`, `anysearchEndpoint`, `anysearchApiKey`, `anysearchTimeoutMs`, `anysearchFallbackToHttp`, `anysearchMaxChars` | `true` / `https://api.anysearch.com/v1/extract` / `''` / `30000` / `true` / `100000` |
-| CDP | `cdpEnabled`, `cdpEndpoint`, `cdpTimeoutMs`, `cdpWaitMs` | `true` / `http://10.200.0.5:9222` / `60000` / `2000` |
+| CDP | `cdpEnabled`, `cdpEndpoint`, `cdpTimeoutMs`, `cdpWaitMs` | `true` / `http://127.0.0.1:9222` / `60000` / `2000` |
 | Tavily | `tavilyEnabled`, `tavilyEndpoint`, `tavilyApiKey`, `tavilyTimeoutMs` | `false` / `https://api.tavily.com/extract` / `''` / `30000` |
 
 `searchApiKey` and `anysearchApiKey` are intentionally separate: the `generic` search mode may point at a third-party JSON endpoint (SearXNG etc.). Filling both with the same `as_sk_…` key is fine.
 
-Environment overrides for the search side (same names as the old bundle): `WEB_SEARCH_CUSTOM_API`, `WEB_SEARCH_CUSTOM_URL`, `WEB_SEARCH_CUSTOM_API_KEY`, `WEB_SEARCH_CUSTOM_MAX_RESULTS`, `WEB_SEARCH_CUSTOM_HEADERS`, `WEB_SEARCH_CUSTOM_TIMEOUT_MS`.
+Environment overrides for the search side: `WEB_SEARCH_CUSTOM_API`, `WEB_SEARCH_CUSTOM_URL`, `WEB_SEARCH_CUSTOM_API_KEY`, `WEB_SEARCH_CUSTOM_MAX_RESULTS`, `WEB_SEARCH_CUSTOM_HEADERS`, `WEB_SEARCH_CUSTOM_TIMEOUT_MS`.
 
-## Migration
+## Migrating an existing config
 
-`tools/migrate-config.mjs` reads the two legacy rows from the profile patch and emits the 29-key `web-custom` config. It never prints secret values:
+`tools/migrate-config.mjs` reads the rows left by the earlier split bundles and emits the 29-key `web-custom` config. It never prints secret values:
 
 ```bash
 # dry-run: per-key report (masked secrets, value presence only)
 node tools/migrate-config.mjs --patch ~/.dsh/profiles/desktop/cordis.patch.yml
 
-# preflight: exit 1 when a legacy row or key is missing
+# preflight: exit 1 when a pre-merge row or key is missing
 node tools/migrate-config.mjs --patch <patch> --check
 
 # candidate patch with real values (contains secrets — delete after use)
@@ -93,7 +97,7 @@ Suites: entry (declaration surface, 29 volatile fields, key-set equality), host-
 
 ## Known traps
 
-- **Atomic switch**: loading old and new bundles together fails with `WEB_DUPLICATE_PROVIDER`.
+- **Atomic switch**: two bundles serving the same seam fail the load with `WEB_DUPLICATE_PROVIDER`.
 - **Configured-but-unavailable**: if the `web` row names our provider but it reports unavailable (e.g. empty `searchUrl`), the host throws `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` instead of falling back.
 - **Fallback off + empty key**: with `anysearchFallbackToHttp` disabled and no `anysearchApiKey`, the extract provider reports unavailable and the host fails every `web_fetch` with the same no-fallback error. Keep the fallback on, or fill the key.
 - **Official "Web search" settings page** rewrites the whole `- id: web` config. Re-check both keys after touching that page.
