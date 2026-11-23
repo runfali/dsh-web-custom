@@ -222,6 +222,21 @@ ok("generic：{queryRaw} 不编码 / {query} 编码 / {apiKey} 内嵌后不再�
   const calls = [];
   const restore = stubFetch(async (url, init) => { calls.push({ url: String(url), init }); return jsonResponse({ results: [] }); });
   try {
+    await provider({
+      searchApi: "generic",
+      searchUrl: "http://127.0.0.1:18080/s?rawkey={apiKeyRaw}",
+      searchApiKey: "k_raw-1"
+    }).search({ query: "q" });
+  } finally { restore(); }
+  assert.ok(calls[0].url.includes("rawkey=k_raw-1"), "{apiKeyRaw} must stay unencoded: " + calls[0].url);
+  assert.equal(headerValue(calls[0].init.headers, "authorization"), undefined, "key embedded via {apiKeyRaw} must not also be sent as a header");
+}
+ok("generic：{apiKeyRaw} 原样内嵌且同样抑制鉴权头");
+
+{
+  const calls = [];
+  const restore = stubFetch(async (url, init) => { calls.push({ url: String(url), init }); return jsonResponse({ results: [] }); });
+  try {
     await provider({ searchUrl: "http://127.0.0.1:18080/s", searchApi: "auto" }).search({ query: "q" });
   } finally { restore(); }
   assert.equal(calls[0].init.method, "GET", "non-anysearch host under auto must use generic");

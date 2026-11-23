@@ -95,6 +95,7 @@ Suites: entry (declaration surface, 29 volatile fields, key-set equality), host-
 
 - **Atomic switch**: loading old and new bundles together fails with `WEB_DUPLICATE_PROVIDER`.
 - **Configured-but-unavailable**: if the `web` row names our provider but it reports unavailable (e.g. empty `searchUrl`), the host throws `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` instead of falling back.
+- **Fallback off + empty key**: with `anysearchFallbackToHttp` disabled and no `anysearchApiKey`, the extract provider reports unavailable and the host fails every `web_fetch` with the same no-fallback error. Keep the fallback on, or fill the key.
 - **Official "Web search" settings page** rewrites the whole `- id: web` config. Re-check both keys after touching that page.
 - **Two fetch concepts**: `web_fetch` is the native tool served by the `anysearch` provider; `web_fetch_cdp` / `web_fetch_tavily` are separate tools registered by this plugin. Their errors name `web-custom`.
 

@@ -178,6 +178,14 @@ export function apply(ctx, config = {}) {
 
   // 为每个策略注册独立工具；只有 enabled 的策略在 execute 中才真正可用。
   // 传 thunk 而非值：快照会在设置页保存后过期，thunk 每次现读。
-  ctx.tools.register(makeToolDef("cdp", makeCdpStrategy, "cdpEnabled", readConfig))
-  ctx.tools.register(makeToolDef("tavily", makeTavilyStrategy, "tavilyEnabled", readConfig))
+  // 注册统一纳入 ctx.effect（对齐 dsh-soul / dsh-fact-memory 惯例）：插件停用时工具随 effect 一并注销。
+  for (const [name, factory, enabledKey] of [
+    ["cdp", makeCdpStrategy, "cdpEnabled"],
+    ["tavily", makeTavilyStrategy, "tavilyEnabled"]
+  ]) {
+    ctx.effect(() => {
+      const dispose = ctx.tools.register(makeToolDef(name, factory, enabledKey, readConfig))
+      return () => dispose()
+    })
+  }
 }

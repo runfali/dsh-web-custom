@@ -95,6 +95,7 @@ npm test
 
 - **原子切换**：新旧包同时加载会被 `WEB_DUPLICATE_PROVIDER` 挡下。
 - **已配置但不可用**：`web` 行点名了本 provider 却 `available() === false`（如 `searchUrl` 为空）时，宿主抛 `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`，不会回落。
+- **关回落 + 空 Key**：`anysearchFallbackToHttp` 关闭且未填 `anysearchApiKey` 时，extract 档不可用，宿主对每次 `web_fetch` 都报同一个不回落错误。要么保持回落开启，要么把 Key 填上。
 - **官方「Web 搜索」设置页**会整段覆写 `- id: web` 的 config；动过该页后务必复核两键。
 - **两种抓取**：`web_fetch` 是宿主原生工具、由 `anysearch` provider 供数；`web_fetch_cdp` / `web_fetch_tavily` 是本插件注册的独立工具，报错前缀是 `web-custom`。
 
