@@ -325,7 +325,7 @@ function makeSettingsHarness() {
   assert.deepEqual(Object.keys(row.value).sort(), [...CONFIG_KEYS].sort(), "describe() value must carry all 29 fields");
   assert.equal(row.value.searchApi, "auto");
   assert.equal(row.value.searchMaxResults, 10);
-  assert.equal(row.value.cdpEndpoint, "http://10.200.0.5:9222");
+  assert.equal(row.value.cdpEndpoint, "http://127.0.0.1:9222");
   assert.equal(row.value.tavilyEnabled, false);
   assert.equal(row.value.anysearchEnabled, true);
   assert.equal(row.value.anysearchMaxChars, 100000);

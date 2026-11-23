@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-custom",
   "version": "0.4.0",
-  "description": "One DSH bundle for the web seam: a search provider (AnySearch / generic JSON, takes over the native web_search) plus an extract provider (AnySearch, takes over web_fetch) and two standalone CDP / Tavily fetch tools. Merged from dsh-web-fetch and dsh-web-search-custom.",
+  "description": "DSH web bundle: swappable search and fetch providers for the native web_search / web_fetch seams (AnySearch or any JSON search endpoint), plus standalone CDP and Tavily extract tools.",
   "type": "module",
   "main": "src/index.js",
   "exports": {

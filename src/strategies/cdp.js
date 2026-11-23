@@ -11,7 +11,7 @@ import https from "node:https"
 import { randomBytes } from "node:crypto"
 import { withTimeout, plainText, truncate, source } from "../helpers.js"
 
-const DEFAULT_ENDPOINT = "http://10.200.0.5:9222"
+const DEFAULT_ENDPOINT = "http://127.0.0.1:9222"
 const DEFAULT_TIMEOUT_MS = 60000
 const DEFAULT_WAIT_MS = 2000
 const WS_MAX_FRAME = 6 * 1024 * 1024
@@ -63,7 +63,7 @@ export function parseFrameHeader(slice) {
 
 class CdpClient {
   constructor(endpoint, cfg) {
-    this.endpoint = endpoint // http://10.200.0.5:9222
+    this.endpoint = endpoint // http://127.0.0.1:9222
     this.cfg = cfg
     this.ws = null
     this.seq = 0
