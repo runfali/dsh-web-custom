@@ -163,6 +163,36 @@ async function run() {
     console.log("  ok data 缺失（401 之类错误体）在映射阶段即抛错")
   }
 
+  {
+    // 回归：错误文案会带着厂商 message 进模型上下文，凭据必须先脱敏。
+    let message = ""
+    try {
+      mapExtractPayload({ code: 402, message: "quota exhausted, auto key api_key=as_sk_leak_123 issued" }, "https://x/", 1000)
+    } catch (err) {
+      message = String(err.message)
+    }
+    assert.equal(message.includes("as_sk_leak_123"), false, "凭据不得出现在错误文案: " + message)
+    assert.ok(message.includes("quota exhausted"), message)
+    console.log("  ok mapExtractPayload 的错误文案对凭据脱敏")
+  }
+
+  {
+    // 回归：响应体不可解析时旧实现把 raw 前 200 字符直接塞进错误；凭据同样不得漏出。
+    const clean = stubFetch([() => jsonResponse(402, { code: 402, api_key: "as_sk_raw_leak", password: "p-leak" })])
+    const p = makeAnySearchFetchProvider(() => Object.assign({}, liveCfg, { anysearchFallbackToHttp: false }))
+    let message = ""
+    try {
+      await p.fetch({ url: "https://example.com/" })
+    } catch (err) {
+      message = String(err.message)
+    }
+    clean()
+    assert.equal(message.includes("as_sk_raw_leak"), false, message)
+    assert.equal(message.includes("p-leak"), false, message)
+    assert.ok(message.includes("402"), message)
+    console.log("  ok extract 失败错误体不含凭据（回落关闭时抛出）")
+  }
+
   console.log("[AnySearch provider] all passed")
 }
 

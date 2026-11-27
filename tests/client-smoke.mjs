@@ -293,6 +293,23 @@ assert.equal(Object.keys(scopeState.user).join(","), before, "invalid 时保存�
 payload.discard();
 ok("非法数字：state.invalid = true，保存被拒且不落盘");
 
+console.log("== 保存失败不死锁 ==");
+{
+  const realSet = scopeStub.set;
+  scopeStub.set = async () => { throw new Error("network down"); };
+  nodes = render();
+  byId(nodes, "plugin-config-web-custom-cdpWaitMs").props.onChange({ target: { value: "1234" } });
+  assert.equal(snap().dirty, true, "改动后必须 dirty");
+  await payload.save();
+  scopeStub.set = realSet;
+  assert.equal(snap().saving, false, "写失败后 saving 必须复位，否则保存按钮永久禁用");
+  assert.equal(snap().failed, true, "写失败必须置 failed（界面给「保存未生效」）");
+  assert.equal(snap().dirty, true, "写失败必须保留暂存，允许重试");
+  assert.equal(Object.hasOwn(scopeState.user, "cdpWaitMs"), false, "写失败不得留下半落盘的值");
+  payload.discard();
+}
+ok("scope.set 抛错：saving 复位 + failed 置位 + 暂存保留（不死锁）");
+
 console.log("== whileServed 门控 ==");
 servedGate = false;
 slotEntry = null;

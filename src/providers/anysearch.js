@@ -16,7 +16,7 @@
  *   { id, available(): boolean, fetch(request: { url }, signal) }
  *   => { url, statusCode, body: { kind: 'html' | 'text', content }, truncated }
  */
-import { withTimeout, truncate } from "../helpers.js"
+import { redactCredentials, truncate, withTimeout } from "../helpers.js"
 
 /** provider 注册键，profile 里 web 行的 config.fetchProvider 必须等于它。 */
 export const ANYSEARCH_FETCH_PROVIDER_ID = "anysearch"
@@ -57,7 +57,7 @@ export function mapExtractPayload(payload, requestUrl, maxChars) {
   const data = payload && typeof payload === "object" ? payload.data : null
   if (!data || typeof data !== "object" || typeof data.content !== "string" || data.content === "") {
     const code = payload && payload.code !== undefined ? String(payload.code) : "no-code"
-    const message = payload && payload.message ? String(payload.message) : "empty extract payload"
+    const message = redactCredentials(payload && payload.message ? String(payload.message) : "empty extract payload")
     throw new Error("AnySearch extract failed (code " + code + ": " + message + ") for " + requestUrl)
   }
   const title = typeof data.title === "string" ? data.title.trim() : ""
@@ -104,7 +104,8 @@ export function makeAnySearchFetchProvider(readConfig) {
       }
       if (!response.ok) {
         const code = payload && payload.code !== undefined ? String(payload.code) : "http-" + response.status
-        const message = payload && payload.message ? String(payload.message) : raw.slice(0, 200)
+        // 厂商错误体可能回吐凭据（402 档实测），原始体片段进错误文案前先脱敏。
+        const message = redactCredentials(payload && payload.message ? String(payload.message) : raw.slice(0, 200))
         const err = new Error("AnySearch extract HTTP " + response.status + " (code " + code + ": " + message + ") for " + url)
         err.statusCode = response.status
         err.fromAnySearch = true

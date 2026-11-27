@@ -1,3 +1,6 @@
 node_modules/
 *.log
 .DS_Store
+
+# 内部审计/交付文档，不随开源仓库发布
+docs/

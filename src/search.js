@@ -15,6 +15,7 @@ import {
   firstString,
   getPath,
   normalizeUrl,
+  redactCredentials,
   withTimeout
 } from "./helpers.js"
 
@@ -162,16 +163,6 @@ function anysearchMaxResults(options, callerMax) {
   const configured = toInt(options.maxResults, DEFAULT_MAX_RESULTS)
   const caller = toInt(callerMax, configured)
   return Math.max(1, Math.min(ANYSEARCH_MAX_RESULTS_CAP, Math.min(configured, caller)))
-}
-
-/** 脱敏厂商错误文案：402 会自动回吐「自动生成的凭据」，这类字段一律不进错误消息。 */
-function redactCredentials(text) {
-  let out = String(text)
-  for (const key of ["api_key", "password", "username", "secret", "token"]) {
-    out = out.replace(new RegExp(key + "\\s*=\\s*\\S+", "gi"), key + "=<redacted>")
-  }
-  out = out.replace(/(sk-|ak-)[A-Za-z0-9_-]{6,}/g, "<redacted-key>")
-  return out
 }
 
 /** 把非成功响应（HTTP != 2xx 或业务 code !== 0）归一化成带处置提示的错误。 */

@@ -111,7 +111,14 @@ function emitScalar(value) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-const lines = readFileSync(args.patch, "utf8").split(/\r?\n/);
+let patchText;
+try {
+  patchText = readFileSync(args.patch, "utf8");
+} catch (error) {
+  console.error("error: cannot read patch file " + args.patch + " (" + (error && error.code ? error.code : String(error)) + ")");
+  process.exit(2);
+}
+const lines = patchText.split(/\r?\n/);
 const search = readRowConfig(lines, SEARCH_ROW) ?? {};
 const fetchRow = readRowConfig(lines, FETCH_ROW) ?? {};
 const missingRows = [];

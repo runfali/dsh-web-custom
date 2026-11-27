@@ -9,12 +9,15 @@
 import http from "node:http"
 import https from "node:https"
 import { randomBytes } from "node:crypto"
-import { withTimeout, plainText, truncate, source } from "../helpers.js"
+import { numberOr, withTimeout, plainText, truncate, source } from "../helpers.js"
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:9222"
 const DEFAULT_TIMEOUT_MS = 60000
 const DEFAULT_WAIT_MS = 2000
-const WS_MAX_FRAME = 6 * 1024 * 1024
+// CDP 的正常响应本身就可能很大（DOM.getDocument depth:-1、getOuterHTML 会序列化整页 DOM），
+// 实测已撞到 12MB 帧。上限只用于防失控内存，不能再把正常响应当异常抛给事件循环；
+// 超限由 _onData 捕获后关闭连接（见 _fail），不会冒泡成宿主进程的未捕获异常。
+export const WS_MAX_FRAME = 32 * 1024 * 1024
 
 export function encodeFrame(message) {
   const data = Buffer.from(message, "utf8")
@@ -61,7 +64,7 @@ export function parseFrameHeader(slice) {
   return { fin, opcode, mask, payloadLen, consumed, headerSize: consumed + (mask ? 4 : 0) }
 }
 
-class CdpClient {
+export class CdpClient {
   constructor(endpoint, cfg) {
     this.endpoint = endpoint // http://127.0.0.1:9222
     this.cfg = cfg
@@ -71,6 +74,10 @@ class CdpClient {
     this.events = new Map()
     this.closed = false
     this._frameBuf = Buffer.alloc(0)
+    this._fragments = null
+    this._fragmentsLen = 0
+    // 单帧上限与「分片总量」上限共用同一个值（测试可改小）。
+    this.maxFrame = WS_MAX_FRAME
   }
 
   async httpGet(path) {
@@ -91,10 +98,18 @@ class CdpClient {
   }
 
   async connect() {
-    // 取 browser WS（/json/version）用于创建隔离 target
-    const ver = await this.httpGet("/json/version").catch(() => null)
+    // 取 browser WS（/json/version）用于创建隔离 target。
+    // 失败原因必须带出来：端点在但没人监听时，旧文案只说「没有 webSocketDebuggerUrl」，会把连不上的
+    // 网络问题误报成 CDP 协议问题（远程 10.x 端点最常见的故障）。
+    let reason = ""
+    const ver = await this.httpGet("/json/version").catch((error) => {
+      reason = error && error.message ? String(error.message) : String(error)
+      return null
+    })
     const wsPath = ver && ver.webSocketDebuggerUrl
-    if (!wsPath) throw new Error("CDP /json/version 无 webSocketDebuggerUrl: " + this.endpoint)
+    if (!wsPath) {
+      throw new Error("CDP /json/version 无 webSocketDebuggerUrl: " + this.endpoint + (reason ? "（请求失败: " + reason + "）" : ""))
+    }
     await this.connectToWs(wsPath)
     return { wsUrl: wsPath, isBrowser: true }
   }
@@ -127,19 +142,33 @@ class CdpClient {
         this.ws = socket
         this._frameBuf = head && head.length ? head : Buffer.alloc(0)
         socket.on("data", (c) => this._onData(c))
-        socket.on("close", () => { this.closed = true })
-        socket.on("error", () => { this.closed = true })
+        socket.on("close", () => this._fail(new Error("CDP socket closed")))
+        socket.on("error", (e) => this._fail(e))
         resolve()
       })
     })
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("WebSocket handshake timeout after 8000ms to " + wsPath)), 8000))
+    let timer = null
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("WebSocket handshake timeout after 8000ms to " + wsPath)), 8000)
+      timer.unref && timer.unref()
+    })
     req.end()
-    await Promise.race([handshake, timeout])
+    // 握手成功也要清掉兜底定时器：否则每次建连都留一个 8s 的活跃 timer 撑住事件循环。
+    try { await Promise.race([handshake, timeout]) } finally { clearTimeout(timer) }
     // 等 50ms 让事件循环就绪
     await new Promise((r) => setTimeout(r, 50))
   }
 
+  /** socket 数据入口：协议层任何异常都只能让本次连接失败，绝不能冒泡成宿主进程的未捕获异常。 */
   _onData(chunk) {
+    try {
+      this._drain(chunk)
+    } catch (e) {
+      this._fail(e)
+    }
+  }
+
+  _drain(chunk) {
     const buf = Buffer.concat([this._frameBuf, chunk])
     this._frameBuf = Buffer.alloc(0)
     let offset = 0
@@ -157,14 +186,65 @@ class CdpClient {
         payload = dec
       }
       offset += need
-      if (header.opcode === 0x8) { this.closed = true; try { this.ws && this.ws.end() } catch {} ; break }
-      else if (header.opcode === 0x9) { /* ping */ }
+      if (header.opcode === 0x8) { this._fail(new Error("CDP peer closed the socket")); break }
+      else if (header.opcode === 0x9) { this._writeControl(0xa, payload) }
       else if (header.opcode === 0xa) { /* pong */ }
       else if (header.opcode === 0x1 || header.opcode === 0x0) {
-        if (header.fin) this._dispatch(payload.toString("utf8"))
+        // 分片消息：首帧（opcode 1）开始累积，continuation（opcode 0）追加，fin 时整条派发。
+        if (header.opcode === 0x1) { this._fragments = []; this._fragmentsLen = 0 }
+        if (this._fragments) {
+          this._fragments.push(payload)
+          this._fragmentsLen += payload.length
+          // 单帧上限拦不住「无数个小分片累加」：总量同样必须收敛，否则仍是一条内存放大通道。
+          if (this._fragmentsLen > this.maxFrame) {
+            this._fail(new Error("CDP fragmented message exceeds " + this.maxFrame + " bytes"))
+            break
+          }
+          if (header.fin) {
+            const whole = this._fragments.length === 1 ? this._fragments[0] : Buffer.concat(this._fragments)
+            this._fragments = null
+            this._fragmentsLen = 0
+            this._dispatch(whole.toString("utf8"))
+          }
+        }
       }
+      // opcode 0x2（binary）CDP 不使用，整帧忽略
     }
     if (offset < buf.length) this._frameBuf = buf.subarray(offset)
+  }
+
+  _writeControl(opcode, payload) {
+    try {
+      if (!this.ws || this.closed) return
+      // RFC6455：控制帧载荷上限 125 字节，超长 ping 只回显前 125 字节（截断也比造一个非法帧好）。
+      const full = payload || Buffer.alloc(0)
+      const body = full.length > 125 ? full.subarray(0, 125) : full
+      const mask = randomBytes(4)
+      const masked = Buffer.alloc(body.length)
+      for (let i = 0; i < body.length; i++) masked[i] = body[i] ^ mask[i % 4]
+      const header = body.length < 126
+        ? Buffer.from([0x80 | opcode, 0x80 | body.length])
+        : Buffer.from([0x80 | opcode, 0x80 | 126, (body.length >> 8) & 0xff, body.length & 0xff])
+      this.ws.write(Buffer.concat([header, mask, masked]))
+    } catch {}
+  }
+
+  _fail(err) {
+    if (this.closed) return
+    this.closed = true
+    this._fragments = null
+    this._fragmentsLen = 0
+    this._frameBuf = Buffer.alloc(0)
+    try { this.ws && this.ws.destroy() } catch {}
+    this._rejectPending(err)
+  }
+
+  _rejectPending(err) {
+    const reason = err instanceof Error ? err : new Error(String(err))
+    for (const [id, p] of this.pending) {
+      this.pending.delete(id)
+      try { p.reject(new Error("CDP connection failed: " + reason.message)) } catch {}
+    }
   }
 
   _dispatch(raw) {
@@ -185,7 +265,11 @@ class CdpClient {
     if (!this.ws || this.closed) throw new Error("CDP socket closed before cmd " + method)
     this.seq += 1
     const id = this.seq
-    this.ws.write(encodeFrame(JSON.stringify({ id, method, params: params || {} })))
+    try {
+      this.ws.write(encodeFrame(JSON.stringify({ id, method, params: params || {} })))
+    } catch (e) {
+      throw new Error("CDP write failed: " + (e && e.message ? e.message : String(e)))
+    }
     const timeout = withTimeout(opts.signal, opts.timeoutMs || this.cfg.timeoutMs)
     try {
       return await new Promise((resolve, reject) => {
@@ -217,7 +301,9 @@ class CdpClient {
         await new Promise((r) => setTimeout(r, 200))
         try { this.ws.destroy() } catch {}
       }
-      for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error("CDP closed")) }
+      this._rejectPending(new Error("CDP closed"))
+      // 显式关闭后不再放行任何 cmd：否则后续写入会落到已销毁的 socket 上，只能靠 write 抛错兜底。
+      this.closed = true
     } catch {}
   }
 }
@@ -258,8 +344,10 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
   }
 
   const pageClient = new CdpClient(endpoint, cfg)
-  await pageClient.connectToWs(pageWs)
   try {
+    // 握手放进 try：page WS 连不上时若在外面抛，下面 finally 里的 Target.closeTarget 就不会执行，
+    // 新建的 target（一个浏览器标签）会永久留在 Chrome 里，抓一次失败漏一个。
+    await pageClient.connectToWs(pageWs)
     await pageClient.cmd("Page.enable").catch(() => {})
     await pageClient.cmd("Runtime.enable").catch(() => {})
     await pageClient.cmd("DOM.enable").catch(() => {})
@@ -267,9 +355,10 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
     // 等待加载：Page.loadEventFired 或 readyState
     let fired = false
     const loadP = new Promise((res) => {
-      const off = pageClient.on("Page.loadEventFired", () => { fired = true; res(true) })
-      // 5s 后兜底
-      setTimeout(() => { if (!fired) res(false) }, 8000)
+      const off = pageClient.on("Page.loadEventFired", () => { fired = true; off(); res(true) })
+      // 8s 兜底：命中即注销监听，别把死监听和活跃 timer 留到目标页关掉之后。
+      const timer = setTimeout(() => { if (!fired) { off(); res(false) } }, 8000)
+      timer.unref && timer.unref()
     })
 
     // 若 createTarget 已带 url，这里 Page.navigate 可能返回 "already navigated"，忽略错误
@@ -308,7 +397,8 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
     throwIfAborted()
     if (!text || text.trim().length < 30) {
       try {
-        const dom = await pageClient.cmd("DOM.getDocument", { depth: -1, pierce: true }, { timeoutMs: 5000 }).catch(() => null)
+        // depth: -1 会把整棵 DOM 树塞进一条 CDP 消息（实测已触发 12MB 帧），这里只取 root，再取 outerHTML。
+        const dom = await pageClient.cmd("DOM.getDocument", { depth: 1, pierce: true }, { timeoutMs: 5000 }).catch(() => null)
         if (dom && dom.root) {
           const outer = await pageClient.cmd("DOM.getOuterHTML", { nodeId: dom.root.nodeId }, { timeoutMs: 5000 }).catch(() => null)
           const html = outer && outer.outerHTML ? String(outer.outerHTML) : ""
@@ -326,12 +416,24 @@ async function fetchViaIsolatedPage(browserClient, endpoint, url, cfg, signal) {
   }
 }
 
-export function makeCdpStrategy(config) {
-  const endpoint = (config.cdpEndpoint || config.endpoint || DEFAULT_ENDPOINT).replace(/\/+$/, "")
-  const cfg = {
-    timeoutMs: Number(config.cdpTimeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
-    waitMs: Number(config.cdpWaitMs ?? config.waitMs ?? DEFAULT_WAIT_MS) || DEFAULT_WAIT_MS,
+/** 解析策略配置（纯函数，便于单测）：
+ *  - 端点归一化：ws → http / wss → https。本策略始终先走 /json/version 的 HTTP 发现，
+ *    原样保留 ws(s) 只会让 available() 放行一个永远连不上的值。
+ *  - 数字字段走 numberOr：0 是 cdpWaitMs 的合法值（表示不额外等待），不能被 || 顶成 2000。 */
+export function resolveCdpCfg(config) {
+  const source = config || {}
+  const raw = String(source.cdpEndpoint || source.endpoint || DEFAULT_ENDPOINT).trim().replace(/\/+$/, "")
+  return {
+    endpoint: raw.replace(/^ws:\/\//i, "http://").replace(/^wss:\/\//i, "https://"),
+    cfg: {
+      timeoutMs: numberOr(source.cdpTimeoutMs ?? source.timeoutMs, DEFAULT_TIMEOUT_MS, 1000),
+      waitMs: numberOr(source.cdpWaitMs ?? source.waitMs, DEFAULT_WAIT_MS, 0)
+    }
   }
+}
+
+export function makeCdpStrategy(config) {
+  const { endpoint, cfg } = resolveCdpCfg(config)
   return {
     id: "cdp",
     title: "CDP 浏览器",

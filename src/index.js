@@ -114,10 +114,8 @@ function makeToolDef(strategyId, factory, enabledField, configReader) {
     async execute(args, exec) {
       // configReader 每次现取并解引用 volatile 活引用：设置页一保存即生效
       const cfg = configReader()
-      let enabled = cfg[enabledField] === true
-      if (!enabled && cfg[enabledField] !== false) {
-        enabled = !!cfg[enabledField]
-      }
+      // 开关可能是裸 boolean、volatile 解引用结果或 yaml 里写成字符串的真值：统一按真值判定。
+      const enabled = !!cfg[enabledField]
       if (!enabled) {
         const cur = (() => {
           try { return JSON.stringify({ [enabledField]: cfg[enabledField], cdpEnabled: cfg.cdpEnabled, tavilyEnabled: cfg.tavilyEnabled }) }
@@ -179,12 +177,13 @@ export function apply(ctx, config = {}) {
   // 为每个策略注册独立工具；只有 enabled 的策略在 execute 中才真正可用。
   // 传 thunk 而非值：快照会在设置页保存后过期，thunk 每次现读。
   // 注册统一纳入 ctx.effect（对齐 dsh-soul / dsh-fact-memory 惯例）：插件停用时工具随 effect 一并注销。
-  for (const [name, factory, enabledKey] of [
+  // 循环变量不能叫 name：会遮蔽模块级 export const name（插件名），日后误引用就是静默换名。
+  for (const [strategyId, factory, enabledKey] of [
     ["cdp", makeCdpStrategy, "cdpEnabled"],
     ["tavily", makeTavilyStrategy, "tavilyEnabled"]
   ]) {
     ctx.effect(() => {
-      const dispose = ctx.tools.register(makeToolDef(name, factory, enabledKey, readConfig))
+      const dispose = ctx.tools.register(makeToolDef(strategyId, factory, enabledKey, readConfig))
       return () => dispose()
     })
   }

@@ -177,6 +177,16 @@ ok("401：文案含 HTTP 状态 / 厂商 message / request_id，且不回显 key
 ok("402：响应体里的 api_key / password 被脱敏");
 
 {
+  // 回归：凭据夹在厂商 message 里（而非独立字段）时也必须脱敏；旧实现只认 key=value 与 sk-/ak- 前缀。
+  const restore = stubFetch(async () => jsonResponse({ code: 402, message: 'quota exhausted (api_key="as_sk_meta_1" auto-generated)' }, 402));
+  let message = "";
+  try { await provider({}).search({ query: "q" }); } catch (error) { message = String(error.message); } finally { restore(); }
+  assert.ok(!message.includes("as_sk_meta_1"), message);
+  assert.ok(message.includes("quota exhausted"), message);
+}
+ok("402：厂商 message 里夹带的凭据同样被脱敏");
+
+{
   const restore = stubFetch(async () => jsonResponse({ code: 7, message: "vendor rejected" }, 200));
   await assert.rejects(() => provider({}).search({ query: "q" }), (error) => String(error.message).includes("vendor rejected"));
 }

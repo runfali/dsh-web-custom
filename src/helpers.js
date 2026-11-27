@@ -25,6 +25,13 @@ export function withTimeout(signal, timeoutMs, message) {
   }
 }
 
+/** 解析数字配置：缺失 / 非数字 / 低于下限一律回退默认值（0 是合法值，不能被 || 当假值吃掉）。 */
+export function numberOr(value, fallback, min = 0) {
+  if (value === null || value === undefined || value === "") return fallback
+  const n = Number(value)
+  return Number.isFinite(n) && n >= min ? n : fallback
+}
+
 /** 剥离 HTML 标签与 Markdown 标记，折叠空白，返回纯文本。 */
 export function plainText(raw) {
   if (!raw || typeof raw !== "string") return ""
@@ -61,6 +68,15 @@ export function source(url, opts = {}) {
   if (opts.snippet) out.snippet = opts.snippet
   if (opts.content) out.content = opts.content
   if (opts.provider) out.provider = opts.provider
+  return out
+}
+
+/** 脱敏凭据：厂商错误体可能回吐自动生成的 key（402 档实测），一律不进错误文案。
+ *  覆盖 key=value / "key":"value" / authorization 头形状，以及 as_sk_ / sk- / ak- 前缀。 */
+export function redactCredentials(text) {
+  let out = String(text)
+  out = out.replace(/((?:api[_-]?key|password|username|secret|token|authorization)["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, "$1<redacted>")
+  out = out.replace(/\b(?:as_sk_|sk-|ak-)[A-Za-z0-9_-]{4,}/g, "<redacted-key>")
   return out
 }
 

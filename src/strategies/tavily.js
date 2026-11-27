@@ -8,7 +8,7 @@
  * 请求体：{ urls: string[] | query: string, maxResults, includeRawContent }
  * @module strategies/tavily
  */
-import { withTimeout, plainText, truncate, source } from "../helpers.js"
+import { numberOr, withTimeout, plainText, truncate, source } from "../helpers.js"
 
 const DEFAULT_ENDPOINT = "https://api.tavily.com/extract"
 const DEFAULT_TIMEOUT_MS = 30000
@@ -21,12 +21,20 @@ function sendJson(url, body, signal, timeoutMs) {
   })
 }
 
-export function makeTavilyStrategy(config) {
-  const endpoint = (config.tavilyEndpoint || config.endpoint || DEFAULT_ENDPOINT).replace(/\/+$/, "")
-  const cfg = {
-    apiKey: config.tavilyApiKey ?? config.apiKey ?? "",
-    timeoutMs: Number(config.tavilyTimeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+/** 解析策略配置（纯函数，便于单测）：端点去尾斜杠；超时走 numberOr（0/负数/越界回退默认，下限 1000）。 */
+export function resolveTavilyCfg(config) {
+  const source = config || {}
+  return {
+    endpoint: String(source.tavilyEndpoint || source.endpoint || DEFAULT_ENDPOINT).replace(/\/+$/, ""),
+    cfg: {
+      apiKey: source.tavilyApiKey ?? source.apiKey ?? "",
+      timeoutMs: numberOr(source.tavilyTimeoutMs ?? source.timeoutMs, DEFAULT_TIMEOUT_MS, 1000)
+    }
   }
+}
+
+export function makeTavilyStrategy(config) {
+  const { endpoint, cfg } = resolveTavilyCfg(config)
   return {
     id: "tavily",
     title: "Tavily",

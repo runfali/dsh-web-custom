@@ -6,7 +6,7 @@
  * 运行：node tests/test-tavily-unit.mjs
  */
 import assert from "node:assert/strict"
-import { makeTavilyStrategy } from "../src/strategies/tavily.js"
+import { makeTavilyStrategy, resolveTavilyCfg } from "../src/strategies/tavily.js"
 
 const RAW = "  <p> Hello <b>world</b>,  this is  test content.</p>  **bold**  ";
 
@@ -151,6 +151,18 @@ async function run() {
     const s = makeTavilyStrategy({ apiKey: "k123" })
     try { await s.fetch({ url: "" }); assert.fail("should throw") } catch {}
     console.log("  ✓ 空 url 时报错")
+  }
+
+  {
+    // 回归：Number(x) || DEFAULT 会把合法的 0 / 负数当假值顶成默认，这里钉住 numberOr 的边界。
+    assert.equal(resolveTavilyCfg({ tavilyTimeoutMs: 0 }).cfg.timeoutMs, 30000)
+    assert.equal(resolveTavilyCfg({ tavilyTimeoutMs: -1 }).cfg.timeoutMs, 30000)
+    assert.equal(resolveTavilyCfg({ tavilyTimeoutMs: 999 }).cfg.timeoutMs, 30000)
+    assert.equal(resolveTavilyCfg({ tavilyTimeoutMs: 5000 }).cfg.timeoutMs, 5000)
+    assert.equal(resolveTavilyCfg({ timeoutMs: 7000 }).cfg.timeoutMs, 7000)
+    assert.equal(resolveTavilyCfg({ endpoint: "http://x/" }).endpoint, "http://x")
+    assert.equal(resolveTavilyCfg({}).cfg.apiKey, "")
+    console.log("  ✓ resolveTavilyCfg：超时 0/负数/越界回退默认，合法值原样保留，端点去尾斜杠")
   }
 
   console.log("========================================")
